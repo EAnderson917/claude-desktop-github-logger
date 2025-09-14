@@ -38,12 +38,23 @@ See [IMPLEMENTATION_GUIDE.md](docs/IMPLEMENTATION_GUIDE.md) for complete setup i
 ## Usage
 
 After setup, use these commands in Claude Desktop:
-Retrieve chat history:
+
+### Retrieve chat history
 Please use the claude-github-logger:retrieve_chat_history tool to show my previous conversations.
-Manual logging:
+
+### Manual logging
 Please use the claude-github-logger:log_conversation tool to log this conversation.
-Check status:
+
+### Check status
 Please use the claude-github-logger:get_logger_status tool.
+
+### Advanced usage
+
+**Filter by project:**
+Please use the claude-github-logger:retrieve_chat_history tool with project "project-name" to show conversations from a specific project.
+
+**Log with specific project:**
+Please use the claude-github-logger:log_conversation tool with project "project-name" to organize this conversation.
 
 ## Security
 
