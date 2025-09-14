@@ -38,3 +38,24 @@ See [IMPLEMENTATION_GUIDE.md](docs/IMPLEMENTATION_GUIDE.md) for complete setup i
 ## Usage
 
 After setup, use these commands in Claude Desktop:
+Retrieve chat history:
+Please use the claude-github-logger:retrieve_chat_history tool to show my previous conversations.
+Manual logging:
+Please use the claude-github-logger:log_conversation tool to log this conversation.
+Check status:
+Please use the claude-github-logger:get_logger_status tool.
+
+## Security
+
+- All credentials stored locally or in n8n
+- GitHub tokens only used for API access
+- Private repositories remain private
+- No sensitive data transmitted unencrypted
+
+## License
+
+MIT License - see LICENSE file for details.
+
+## Contributing
+
+Issues and pull requests welcome! Please read the implementation guide to understand the architecture.
