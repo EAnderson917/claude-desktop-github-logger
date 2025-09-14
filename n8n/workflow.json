@@ -1,0 +1,555 @@
+{
+  "name": "Claude MCP GitHub Logger",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "claude-mcp-chat-logger",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 80],
+      "id": "bf2491f1-8ede-4dad-b1e8-7b9461ef4fb7",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const now = new Date().toISOString();\n\n// Read from webhook body if present; else from top-level (prod vs test)\nconst req = ($json.body && typeof $json.body === 'object') ? $json.body : $json;\n\nconst s      = req.session_id ?? `s-${Date.now()}`;\nconst model  = req.model ?? 'unknown';\nconst toolsA = Array.isArray(req.tools_used)\n  ? req.tools_used\n  : (req.tools_used ? [req.tools_used] : []);\nconst tools  = toolsA.join(', ') || 'none';\nconst project = (req.project ?? '').toString().trim();\n\nconst userMsg = (req.user_message ?? '').trim();\nconst botMsg  = (req.assistant_message ?? '').trim();\n\nconst block = [\n  `## ${now} — Session: ${s}`,\n  `- Model: ${model}`,\n  `- Tools: ${tools}`,\n  ``,\n  `**You:**`,\n  userMsg,\n  ``,\n  `**Assistant:**`,\n  botMsg,\n  ``,\n  `---`\n].join('\\n');\n\nreturn [{\n  json: {\n    // top-level, clean payload\n    project,            // <— important: now top-level\n    session_id: s,\n    model,\n    tools_used: toolsA,\n    block,\n    isoDate: now.slice(0,10),\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [224, 80],
+      "id": "7d2881c2-3553-4892-887a-b370dc7bbfaf",
+      "name": "🧱 Build Markdown Block"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [672, 96],
+      "id": "671adde0-5bd8-4936-ae2b-8972b3aeadbc",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $vars.GITHUB_REPO }}/contents/transcripts/latest.md",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [448, 168],
+      "id": "431dd7f9-4f96-4d4a-b012-419514222c75",
+      "name": "📥 Get latest.md"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build content for latest.md (Option A: non-append)\nconst block = $json.block ?? '';\nconst content_b64 = Buffer.from(block, 'utf8').toString('base64');\n\n// Project slug (prefer top-level; fallback to nested body if ever present)\nconst projectRaw = (($json.project ?? $json.body?.project) ?? '').toString().trim();\nconst projectSlug = projectRaw\n  ? projectRaw.toLowerCase().replace(/[^a-z0-9-_]/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')\n  : '';\n\n// Unique archive path (grouped if project provided)\nconst date = $json.isoDate ?? new Date().toISOString().slice(0,10);\nconst year = date.slice(0,4);\nconst rawId  = $json.session_id ?? `s-${Date.now()}`;\nconst safeId = String(rawId).replace(/[^a-zA-Z0-9-_]/g, '_');\nconst iso = new Date().toISOString().replace(/[:.]/g, '-');\nconst hhmmss = iso.slice(11,19).replace(/-/g, '');\nconst rand4  = Math.random().toString(36).slice(2, 6);\n\nconst baseDir   = projectSlug ? `transcripts/${projectSlug}` : 'transcripts';\nconst datedPath = `${baseDir}/${year}/${date}/${safeId}-${hhmmss}-${rand4}.md`;\n\n// latest.md body (create first time, update later if sha available from GET latest)\nconst latestSha = ($json.statusCode === 200 && $json.body) ? ($json.body.sha || null) : null;\nconst githubLatestBody = { message: `append: ${new Date().toISOString()}`, content: content_b64 };\nif (latestSha) githubLatestBody.sha = latestSha;\n\n// Archive body (always new filename → no sha)\nconst githubArchiveBody = { message: `archive: ${new Date().toISOString()}`, content: content_b64 };\n\n// Project latest path ('' when no project)\nconst projectLatestPath = projectSlug ? `transcripts/${projectSlug}/latest.md` : '';\n\nreturn [{\n  json: {\n    githubLatestBody,\n    githubArchiveBody,\n    datedPath,\n    content_b64,\n    projectLatestPath\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [896, 96],
+      "id": "004ef48a-1f80-4f3e-bb20-fcdcfb5e9cc0",
+      "name": "🧰 Prepare Bodies"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.github.com/repos/{{ $vars.GITHUB_REPO }}/contents/transcripts/latest.md",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.githubLatestBody) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, -96],
+      "id": "c79d7a6b-518d-4da2-a6e0-eb33aac98b3a",
+      "name": "⬆️ PUT latest.md"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.github.com/repos/{{ $vars.GITHUB_REPO }}/contents/{{ encodeURI($json.datedPath) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.githubArchiveBody) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 96],
+      "id": "d5c79e76-63cc-4c0b-aabd-d6cf1eae4d56",
+      "name": "📚 PUT dated.md"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{\n  JSON.stringify({\n    ok: true,\n    latest_url: $json.latest_url ?? null,\n    dated_url:  $json.dated_url  ?? null,\n    project_latest_url: $json.project_latest_url ?? null,\n    status_latest: $json.status_latest ?? null,\n    status_dated:  $json.status_dated  ?? null,\n    status_project_latest: $json.status_project_latest ?? null\n  })\n}}\n\n",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [2464, 320],
+      "id": "9c06b69a-b437-40c1-901e-d3d264247171",
+      "name": "✅ Done"
+    },
+    {
+      "parameters": {
+        "jsCode": "const url = $json.body?.content?.html_url ?? null;\nconst status = $json.statusCode ?? null;\nreturn [{ json: { latest_url: url, status_latest: status } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1344, -96],
+      "id": "e4755184-8c9c-467d-8a66-3620b8b98038",
+      "name": "🧾 Latest Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "const url = $json.body?.content?.html_url ?? null;\nconst status = $json.statusCode ?? null;\nreturn [{ json: { dated_url: url, status_dated: status } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1344, 96],
+      "id": "c6a914b0-1300-48d2-b37f-1cb964a5f10e",
+      "name": "🧾 Dated Result"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1568, 0],
+      "id": "096b4f2f-63e2-4258-b77b-abf154dd15e7",
+      "name": "🔀 Merge results"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9e6b30b0-a2e5-42c9-85ea-aaec836cc2d5",
+              "leftValue": "={{$json.projectLatestPath}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1120, 360],
+      "id": "11597cd7-59d3-424e-9d15-4c7d6187fb3e",
+      "name": "IF — Has project?"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $vars.GITHUB_REPO }}/contents/{{ $json.projectLatestPath }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1344, 512],
+      "id": "cb9cb1ad-f42c-436d-acac-06e1b4601c09",
+      "name": "📥 Get project latest.md"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 🔧 SET THIS to the exact label of your Prepare Bodies node:\nconst PREP_NODE = \"🧰 Prepare Bodies\";\n\n// Pull preserved fields from Prepare Bodies (not from the HTTP node that overwrote them)\nconst prepItems = $items(PREP_NODE);\nif (!prepItems || !prepItems.length) {\n  throw new Error(`Could not read items from node: ${PREP_NODE}`);\n}\nconst prep = prepItems[0].json;\n\nconst projectLatestPath = prep.projectLatestPath || \"\";\nlet content_b64 = prep.content_b64;\n\n// Ensure we have content (fallback placeholder if ever missing)\nif (!content_b64) {\n  const placeholder = [\n    '# Transcript (project latest)',\n    '',\n    'No chat payload provided.',\n    `Timestamp: ${new Date().toISOString()}`\n  ].join('\\n');\n  content_b64 = Buffer.from(placeholder, 'utf8').toString('base64');\n}\n\n// If GET project latest returned 200, include sha to update; else create\nconst projSha = ($json.statusCode === 200 && $json.body) ? ($json.body.sha || null) : null;\n\nconst body = {\n  message: `append (project): ${new Date().toISOString()}`,\n  content: content_b64,\n};\nif (projSha) body.sha = projSha;\n\nreturn [{\n  json: {\n    githubProjectLatestBody: body,\n    projectLatestPath\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1568, 512],
+      "id": "5533bec1-51c2-467e-bc6e-33501afb193f",
+      "name": "🧰 Build project latest body"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.github.com/repos/{{ $vars.GITHUB_REPO }}/contents/{{ $json.projectLatestPath }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.githubProjectLatestBody) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1792, 512],
+      "id": "986972e0-0f93-48f7-a4f2-50c85a95f698",
+      "name": "⬆️ PUT project latest.md"
+    },
+    {
+      "parameters": {
+        "jsCode": "const url = $json.body?.content?.html_url ?? null;\nconst status = $json.statusCode ?? null;\nreturn [{ json: { project_latest_url: url, status_project_latest: status } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2016, 512],
+      "id": "e20e3ced-4c93-491d-bae9-611aacde37f8",
+      "name": "🧾 Project Result (success)"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [2272, 320],
+      "id": "050e8a6a-aefd-42ee-845f-85aea7540a8f",
+      "name": "Merge Project Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { project_latest_url: null, status_project_latest: null } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, 336],
+      "id": "9312337d-8002-4e90-a0f7-787f050b669e",
+      "name": "🧾 Project Result (empty)"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "🧱 Build Markdown Block",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧱 Build Markdown Block": {
+      "main": [
+        [
+          {
+            "node": "📥 Get latest.md",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📥 Get latest.md": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "🧰 Prepare Bodies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧰 Prepare Bodies": {
+      "main": [
+        [
+          {
+            "node": "📚 PUT dated.md",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF — Has project?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "⬆️ PUT latest.md",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📚 PUT dated.md": {
+      "main": [
+        [
+          {
+            "node": "🧾 Dated Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⬆️ PUT latest.md": {
+      "main": [
+        [
+          {
+            "node": "🧾 Latest Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧾 Latest Result": {
+      "main": [
+        [
+          {
+            "node": "🔀 Merge results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧾 Dated Result": {
+      "main": [
+        [
+          {
+            "node": "🔀 Merge results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "🔀 Merge results": {
+      "main": [
+        [
+          {
+            "node": "Merge Project Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — Has project?": {
+      "main": [
+        [
+          {
+            "node": "🧾 Project Result (empty)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📥 Get project latest.md",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📥 Get project latest.md": {
+      "main": [
+        [
+          {
+            "node": "🧰 Build project latest body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧰 Build project latest body": {
+      "main": [
+        [
+          {
+            "node": "⬆️ PUT project latest.md",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⬆️ PUT project latest.md": {
+      "main": [
+        [
+          {
+            "node": "🧾 Project Result (success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧾 Project Result (success)": {
+      "main": [
+        [
+          {
+            "node": "Merge Project Result",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "🧾 Project Result (empty)": {
+      "main": [
+        [
+          {
+            "node": "Merge Project Result",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Project Result": {
+      "main": [
+        [
+          {
+            "node": "✅ Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
