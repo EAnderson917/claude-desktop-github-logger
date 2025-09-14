@@ -1,0 +1,23 @@
+# Troubleshooting Guide
+
+## Common Issues
+
+### MCP Server Not Loading
+- Check file paths in Claude Desktop config
+- Verify TypeScript compilation succeeded
+- Restart Claude Desktop completely
+
+### Webhook Issues  
+- Test webhook URL with examples/test-webhook.js
+- Check n8n workflow is active
+- Verify GitHub credentials in n8n
+
+### Empty Conversation Content
+- Ensure field names match between MCP server and n8n
+- Check n8n execution logs for errors
+- Verify GitHub API authentication
+
+### Retrieval Issues
+- Confirm GitHub token has read permissions  
+- Check repository structure matches expected format
+- Test GitHub API access manually
